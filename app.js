@@ -6,6 +6,7 @@
 // ─── State ───────────────────────────────────────────────────
 let logoImage = null;        // HTMLImageElement for the logo
 let qrGenerated = false;     // Whether a QR has been generated
+let serverAvailable = false; // Whether the local proxy server is reachable
 
 // ─── DOM refs ────────────────────────────────────────────────
 const qrText = () => document.getElementById('qr-text').value.trim();
@@ -27,12 +28,46 @@ const btnDownload = document.getElementById('btn-download');
 const btnGenerate = document.getElementById('btn-generate');
 
 // ─── Init ─────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   setupRangeListeners();
   setupColorListeners();
   setupUIColorListeners();
+  await checkServerHealth();
   loadLogoFromUrl(logoUrlEl.value);
 });
+
+// ─── Server Health Check ──────────────────────────────────────
+// Detects if the app is running through node server.js (localhost)
+// or opened directly as a file. The proxy only works in the first case.
+async function checkServerHealth() {
+  const badge = document.getElementById('server-badge');
+  if (!badge) return;
+
+  // If we're not on http/https, we're definitely not served by node
+  if (!window.location.protocol.startsWith('http')) {
+    serverAvailable = false;
+    badge.textContent = '🔴 Sin servidor';
+    badge.title = 'Abre la app con: node server.js → http://localhost:3030';
+    badge.classList.add('badge-offline');
+    return;
+  }
+
+  try {
+    // Probe the proxy endpoint with a dummy request (will return 400, but that
+    // means the server IS running — a network error means it's not)
+    const res = await fetch('/proxy?url=', { signal: AbortSignal.timeout(2000) });
+    // Any HTTP response (even 400 Bad Request) means the server is up
+    serverAvailable = true;
+    badge.textContent = '🟢 Servidor activo';
+    badge.title = 'El proxy CORS está disponible. Las URLs de logo funcionarán.';
+    badge.classList.add('badge-online');
+  } catch {
+    serverAvailable = false;
+    badge.textContent = '🔴 Sin servidor';
+    badge.title = 'Inicia el servidor con: node server.js → http://localhost:3030';
+    badge.classList.add('badge-offline');
+  }
+}
 
 // ─── Range sliders ────────────────────────────────────────────
 function setupRangeListeners() {
@@ -88,11 +123,9 @@ function setupUIColorListeners() {
     const val = accentEl.value;
     accentHex.textContent = val;
     document.documentElement.style.setProperty('--accent', val);
-    // Derive a lighter accent
     document.documentElement.style.setProperty('--accent-light', val);
     document.documentElement.style.setProperty('--accent-glow', hexToRgba(val, 0.25));
     document.documentElement.style.setProperty('--border', hexToRgba(val, 0.18));
-    // Update all range backgrounds
     document.querySelectorAll('input[type="range"]').forEach(updateRangeBackground);
   });
 
@@ -111,54 +144,125 @@ function hexToRgba(hex, alpha) {
 }
 
 // ─── Logo loading ─────────────────────────────────────────────
-// Routes external URLs through the local /proxy endpoint so the server
-// fetches the image (no browser CORS restrictions apply server-side).
-// For data: URLs or same-origin paths, loads directly.
+// Strategy:
+//  1. If the image is a data: URL or same-origin → load directly.
+//  2. If the server is available → route through /proxy (bypasses CORS).
+//  3. If the server is NOT available → try loading the image directly with
+//     crossOrigin="anonymous" as a last resort (works only if the remote
+//     server sends Access-Control-Allow-Origin: *).
+//  In all failure cases, a clear, actionable error message is shown.
 async function loadLogoFromUrl(src) {
   if (!src) return;
 
   // Update header preview (img tags are not subject to canvas CORS taint)
   document.getElementById('header-logo-img').src = src;
 
-  // Determine the URL to actually fetch
-  let fetchUrl = src;
+  const isDataUrl = src.startsWith('data:');
   const isExternal = /^https?:\/\//i.test(src) &&
-    !src.startsWith(window.location.origin);
+    !src.startsWith(window.location.origin) &&
+    !isDataUrl;
 
-  if (isExternal) {
-    // Route through our local proxy to avoid CORS
-    fetchUrl = `/proxy?url=${encodeURIComponent(src)}`;
+  // ── Case 1: data: URL or same-origin ──────────────────────
+  if (!isExternal || isDataUrl) {
+    return _loadImageDirect(src);
   }
 
+  // ── Case 2: External URL with server available (use proxy) ─
+  if (serverAvailable) {
+    const proxyUrl = `/proxy?url=${encodeURIComponent(src)}`;
+    try {
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      if (blob.size === 0) throw new Error('Empty response');
+      return _loadImageFromBlob(blob);
+    } catch (err) {
+      console.warn('[logo] proxy fetch failed:', err.message);
+      showToast('⚠️ Error al cargar la imagen desde el proxy. Verifica la URL.');
+      logoImage = null;
+      return;
+    }
+  }
+
+  // ── Case 3: No server → try direct load with CORS ──────────
+  console.info('[logo] No server detected, trying direct crossOrigin load…');
   try {
-    const response = await fetch(fetchUrl);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const blob = await response.blob();
-    if (blob.size === 0) throw new Error('Empty response');
+    await _loadImageDirect(src, true /* crossOrigin */);
+    // If we reach here, the image loaded. Test that we can use it in canvas.
+    if (logoImage) {
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = testCanvas.height = 10;
+      testCanvas.getContext('2d').drawImage(logoImage, 0, 0);
+      // drawImage on a tainted canvas throws — if it doesn't, we're good.
+      showToast('✅ Logo cargado (CORS permitido por el servidor de la imagen).');
+    }
+  } catch (err) {
+    // Canvas was tainted (CORS not allowed by remote server)
+    logoImage = null;
+    showToast(
+      '🔴 Sin servidor activo. Para usar URLs externas ejecuta: node server.js',
+      6000
+    );
+  }
+}
+
+/** Loads an image element from a src string. If crossOrigin is true, sets
+ *  the crossOrigin attribute so the browser requests the image with CORS. */
+function _loadImageDirect(src, crossOrigin = false) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    if (crossOrigin) img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      logoImage = img;
+      resolve();
+    };
+    img.onerror = () => {
+      logoImage = null;
+      resolve(); // resolve (not reject) — caller decides how to handle
+    };
+    img.src = src;
+  });
+}
+
+/** Creates a blob: URL from a Blob and loads it as an Image. */
+function _loadImageFromBlob(blob) {
+  return new Promise((resolve) => {
     const objectUrl = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
       logoImage = img;
+      // Keep the objectUrl alive for 60s then release it
       setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+      resolve();
     };
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
       logoImage = null;
-      showToast('⚠️ No se pudo cargar el logo. Usa "Archivo local".');
+      showToast('⚠️ No se pudo decodificar la imagen. Comprueba que sea PNG o JPG.');
+      resolve();
     };
     img.src = objectUrl;
-  } catch (err) {
-    console.warn('[logo] fetch failed:', err.message);
-    logoImage = null;
-    showToast('⚠️ No se pudo cargar el logo desde la URL. Usa "Archivo local".');
-  }
+  });
 }
 
-function applyLogoUrl() {
-  const url = logoUrlEl.value.trim();
-  if (!url) return;
+async function applyLogoUrl() {
+  const src = logoUrlEl.value.trim();
+  if (!src) return;
+
+  // Visual feedback on the button
+  const btn = document.querySelector('#logo-url-panel .btn-secondary');
+  const original = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '⏳ Cargando…'; btn.disabled = true; }
+
   logoImage = null;
-  loadLogoFromUrl(url);
+  await loadLogoFromUrl(src);
+
+  if (btn) { btn.textContent = original; btn.disabled = false; }
+
+  if (logoImage) {
+    showToast('✅ Logo cargado correctamente.');
+  }
+  // Error toasts are shown inside loadLogoFromUrl
 }
 
 function loadLogoFile(event) {
@@ -167,7 +271,10 @@ function loadLogoFile(event) {
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = new Image();
-    img.onload = () => { logoImage = img; };
+    img.onload = () => {
+      logoImage = img;
+      showToast('✅ Logo cargado desde archivo local.');
+    };
     img.src = e.target.result;
     document.getElementById('header-logo-img').src = e.target.result;
   };
@@ -189,18 +296,16 @@ function generateQR() {
     return;
   }
 
-  // Show loading state
   btnGenerate.innerHTML = '<span class="generating">⚙️</span> Generando…';
   btnGenerate.disabled = true;
 
-  // Small delay to let UI update
+  // Use a small delay to let the UI repaint before heavy work
   setTimeout(() => {
     try {
       _doGenerate(text);
     } catch (e) {
       console.error(e);
       showToast('❌ Error al generar el QR. Intenta de nuevo.');
-    } finally {
       btnGenerate.innerHTML = '<span>⚡</span> Generar QR';
       btnGenerate.disabled = false;
     }
@@ -213,13 +318,11 @@ function _doGenerate(text) {
   const darkColor = colorDarkEl.value;
   const lightColor = colorLightEl.value;
 
-  // Clear temp container
   const tempDiv = document.getElementById('qr-temp');
   tempDiv.innerHTML = '';
 
-  // Generate QR into a temporary canvas via QRCode.js
-  const qr = new QRCode(tempDiv, {
-    text: text,
+  new QRCode(tempDiv, {
+    text,
     width: size,
     height: size,
     colorDark: darkColor,
@@ -227,44 +330,73 @@ function _doGenerate(text) {
     correctLevel: QRCode.CorrectLevel[errLevel],
   });
 
-  // QRCode.js renders asynchronously (it creates an img tag)
-  // We wait for the img to load then composite
-  setTimeout(() => {
-    const qrImg = tempDiv.querySelector('img') || tempDiv.querySelector('canvas');
-    if (!qrImg) {
-      showToast('❌ No se pudo generar el QR.');
-      return;
-    }
-
+  // QRCode.js renders asynchronously. We wait for the <img> that it injects
+  // to fire its "load" event instead of using a blind setTimeout.
+  function onQRReady(qrImg) {
     const compositeCanvas = finalCanvas;
     compositeCanvas.width = size;
     compositeCanvas.height = size;
     const ctx = compositeCanvas.getContext('2d');
 
-    // Draw QR
     ctx.clearRect(0, 0, size, size);
     ctx.drawImage(qrImg, 0, 0, size, size);
 
-    // Overlay logo if enabled
     if (showLogoEl.checked && logoImage) {
-      drawLogoOverlay(ctx, size);
+      try {
+        drawLogoOverlay(ctx, size);
+      } catch (canvasErr) {
+        // Canvas tainted by cross-origin image — generate QR without logo
+        console.warn('[canvas] Tainted by cross-origin image:', canvasErr.message);
+        showToast('⚠️ Logo omitido: imagen con restricciones CORS. Usa el servidor.');
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(qrImg, 0, 0, size, size);
+      }
     }
 
-    // Show canvas, hide placeholder
     placeholder.style.display = 'none';
     compositeCanvas.style.display = 'block';
 
-    // Update meta
     previewMeta.style.display = 'flex';
     document.getElementById('meta-size').textContent = `${size} × ${size} px`;
     document.getElementById('meta-level').textContent = `Corrección: ${errLevel}`;
 
-    // Enable download
     btnDownload.disabled = false;
     qrGenerated = true;
 
+    btnGenerate.innerHTML = '<span>⚡</span> Generar QR';
+    btnGenerate.disabled = false;
+
     showToast('✅ ¡Código QR generado!');
-  }, 300);
+  }
+
+  // Wait for the QRCode.js <img> to be ready
+  const qrImg = tempDiv.querySelector('img');
+  if (qrImg) {
+    if (qrImg.complete && qrImg.naturalWidth > 0) {
+      onQRReady(qrImg);
+    } else {
+      qrImg.onload = () => onQRReady(qrImg);
+      // Fallback: if the img never fires load (old browsers), use timeout
+      setTimeout(() => {
+        if (!qrGenerated || finalCanvas.style.display === 'none') {
+          const fallbackImg = tempDiv.querySelector('img') || tempDiv.querySelector('canvas');
+          if (fallbackImg) onQRReady(fallbackImg);
+        }
+      }, 600);
+    }
+  } else {
+    // No img found yet — QRCode.js may still be building the DOM
+    setTimeout(() => {
+      const fallbackImg = tempDiv.querySelector('img') || tempDiv.querySelector('canvas');
+      if (fallbackImg) {
+        onQRReady(fallbackImg);
+      } else {
+        showToast('❌ No se pudo generar el QR.');
+        btnGenerate.innerHTML = '<span>⚡</span> Generar QR';
+        btnGenerate.disabled = false;
+      }
+    }, 500);
+  }
 }
 
 function drawLogoOverlay(ctx, qrSize) {
@@ -279,19 +411,15 @@ function drawLogoOverlay(ctx, qrSize) {
   const x = Math.round((qrSize - boxSize) / 2);
   const y = Math.round((qrSize - boxSize) / 2);
 
-  // Draw background box with rounded corners
   ctx.save();
   roundRect(ctx, x, y, boxSize, boxSize, radius);
   ctx.fillStyle = bgColor;
   ctx.fill();
-
-  // Border
   ctx.strokeStyle = borderColor;
   ctx.lineWidth = 2.5;
   ctx.stroke();
   ctx.restore();
 
-  // Draw logo image clipped to rounded rect
   ctx.save();
   roundRect(ctx, x + padding, y + padding, logoSize, logoSize, Math.max(0, radius - padding));
   ctx.clip();
@@ -362,7 +490,6 @@ function applyTheme(name) {
   const t = themes[name];
   if (!t) return;
 
-  // QR colors
   colorDarkEl.value = t.dark;
   colorLightEl.value = t.light;
   colorLogoBgEl.value = t.logoBg;
@@ -372,65 +499,42 @@ function applyTheme(name) {
   document.getElementById('color-logo-bg-hex').textContent = t.logoBg;
   document.getElementById('color-logo-border-hex').textContent = t.logoBorder;
 
-  // UI colors
   document.getElementById('ui-accent').value = t.accent;
   document.getElementById('ui-text').value = t.text;
   document.getElementById('ui-accent-hex').textContent = t.accent;
   document.getElementById('ui-text-hex').textContent = t.text;
 
-  // Apply CSS vars
   document.documentElement.style.setProperty('--accent', t.accent);
   document.documentElement.style.setProperty('--accent-light', t.accent);
   document.documentElement.style.setProperty('--accent-glow', hexToRgba(t.accent, 0.25));
   document.documentElement.style.setProperty('--border', hexToRgba(t.accent, 0.18));
   document.documentElement.style.setProperty('--text', t.text);
 
-  // Update range backgrounds
   document.querySelectorAll('input[type="range"]').forEach(updateRangeBackground);
 
   showToast(`🎨 Tema "${name}" aplicado`);
 }
 
 // ─── Toast Notifications ──────────────────────────────────────
-function showToast(message) {
-  // Remove existing toast
+function showToast(message, duration = 2800) {
   const existing = document.querySelector('.toast');
   if (existing) existing.remove();
 
   const toast = document.createElement('div');
   toast.className = 'toast';
   toast.textContent = message;
-  toast.style.cssText = `
-    position: fixed;
-    bottom: 32px;
-    left: 50%;
-    transform: translateX(-50%) translateY(20px);
-    background: rgba(15, 23, 42, 0.92);
-    color: white;
-    padding: 12px 24px;
-    border-radius: 50px;
-    font-size: 0.88rem;
-    font-weight: 600;
-    font-family: 'Inter', sans-serif;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-    z-index: 9999;
-    backdrop-filter: blur(12px);
-    opacity: 0;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    white-space: nowrap;
-  `;
   document.body.appendChild(toast);
 
+  // Trigger entrance animation on next frame
   requestAnimationFrame(() => {
-    toast.style.opacity = '1';
-    toast.style.transform = 'translateX(-50%) translateY(0)';
+    toast.classList.add('toast--visible');
   });
 
   setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(-50%) translateY(10px)';
-    setTimeout(() => toast.remove(), 300);
-  }, 2800);
+    toast.classList.remove('toast--visible');
+    toast.classList.add('toast--hidden');
+    setTimeout(() => toast.remove(), 320);
+  }, duration);
 }
 
 // ─── Keyboard shortcut ────────────────────────────────────────
