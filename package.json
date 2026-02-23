@@ -1,0 +1,20 @@
+{
+    "name": "qr-generator-gaceta-unach",
+    "version": "1.0.0",
+    "description": "Generador de códigos QR personalizados – Gaceta Universitaria UNACH",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "keywords": [
+        "qr",
+        "qr-generator",
+        "gaceta",
+        "unach"
+    ],
+    "author": "Gaceta Universitaria UNACH",
+    "license": "MIT",
+    "engines": {
+        "node": ">=14.0.0"
+    }
+}

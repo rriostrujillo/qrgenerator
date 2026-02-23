@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Generador QR – Gaceta Universitaria UNACH</title>
+  <meta name="description"
+    content="Generador de códigos QR personalizados con el logotipo de la Gaceta Universitaria de la UNACH." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- QRCode.js library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <!-- Background decorative blobs -->
+  <div class="bg-blob blob-1"></div>
+  <div class="bg-blob blob-2"></div>
+  <div class="bg-blob blob-3"></div>
+
+  <div class="app-wrapper">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-logo">
+        <img id="header-logo-img" src="https://gaceta.unach.mx/images/headers/escudogaceta.jpg"
+          alt="Gaceta Universitaria UNACH" />
+      </div>
+      <div class="header-text">
+        <h1>Generador de Código QR</h1>
+        <p>Gaceta Universitaria · UNACH</p>
+      </div>
+    </header>
+
+    <!-- Main layout -->
+    <main class="main-layout">
+      <!-- Controls Panel -->
+      <aside class="controls-panel" id="controls-panel">
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="section-icon">✏️</span> Contenido
+          </h2>
+          <div class="form-group">
+            <label for="qr-text">URL o texto a codificar</label>
+            <textarea id="qr-text" rows="3" placeholder="https://gaceta.unach.mx">https://gaceta.unach.mx</textarea>
+          </div>
+          <div class="form-group">
+            <label for="qr-size">Tamaño del QR</label>
+            <div class="range-row">
+              <input type="range" id="qr-size" min="150" max="500" value="300" step="10" />
+              <span class="range-value" id="qr-size-val">300px</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="error-level">Nivel de corrección de error</label>
+            <select id="error-level">
+              <option value="L">L – Bajo (7%)</option>
+              <option value="M">M – Medio (15%)</option>
+              <option value="Q" selected>Q – Cuartil (25%)</option>
+              <option value="H">H – Alto (30%)</option>
+            </select>
+            <small>Mayor nivel = más datos de recuperación (recomendado Q o H con logo)</small>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="section-icon">🎨</span> Colores del QR
+          </h2>
+          <div class="color-grid">
+            <div class="form-group">
+              <label for="color-dark">Módulos (oscuro)</label>
+              <div class="color-input-wrap">
+                <input type="color" id="color-dark" value="#1a237e" />
+                <span class="color-hex" id="color-dark-hex">#1a237e</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="color-light">Fondo del QR</label>
+              <div class="color-input-wrap">
+                <input type="color" id="color-light" value="#ffffff" />
+                <span class="color-hex" id="color-light-hex">#ffffff</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="color-logo-bg">Fondo del logo</label>
+              <div class="color-input-wrap">
+                <input type="color" id="color-logo-bg" value="#ffffff" />
+                <span class="color-hex" id="color-logo-bg-hex">#ffffff</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="color-logo-border">Borde del logo</label>
+              <div class="color-input-wrap">
+                <input type="color" id="color-logo-border" value="#1a237e" />
+                <span class="color-hex" id="color-logo-border-hex">#1a237e</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="section-icon">🖋️</span> Colores de la interfaz
+          </h2>
+          <div class="color-grid">
+            <div class="form-group">
+              <label for="ui-accent">Color de acento</label>
+              <div class="color-input-wrap">
+                <input type="color" id="ui-accent" value="#1a237e" />
+                <span class="color-hex" id="ui-accent-hex">#1a237e</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="ui-text">Color de texto</label>
+              <div class="color-input-wrap">
+                <input type="color" id="ui-text" value="#1e293b" />
+                <span class="color-hex" id="ui-text-hex">#1e293b</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="section-icon">🖼️</span> Logo central
+          </h2>
+          <div class="form-group">
+            <label for="logo-size">Tamaño del logo</label>
+            <div class="range-row">
+              <input type="range" id="logo-size" min="10" max="40" value="22" step="1" />
+              <span class="range-value" id="logo-size-val">22%</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="logo-padding">Padding del logo</label>
+            <div class="range-row">
+              <input type="range" id="logo-padding" min="0" max="20" value="6" step="1" />
+              <span class="range-value" id="logo-padding-val">6px</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="logo-radius">Radio de esquinas</label>
+            <div class="range-row">
+              <input type="range" id="logo-radius" min="0" max="50" value="12" step="1" />
+              <span class="range-value" id="logo-radius-val">12px</span>
+            </div>
+          </div>
+          <div class="logo-source-tabs">
+            <button class="tab-btn active" id="tab-url" onclick="switchLogoTab('url')">URL</button>
+            <button class="tab-btn" id="tab-file" onclick="switchLogoTab('file')">Archivo local</button>
+          </div>
+          <div id="logo-url-panel" class="logo-panel">
+            <div class="form-group">
+              <label for="logo-url">URL de la imagen</label>
+              <input type="url" id="logo-url" value="https://gaceta.unach.mx/images/headers/escudogaceta.jpg"
+                placeholder="https://..." />
+              <button class="btn-secondary" onclick="applyLogoUrl()">Aplicar URL</button>
+            </div>
+          </div>
+          <div id="logo-file-panel" class="logo-panel hidden">
+            <div class="form-group">
+              <label for="logo-file">Seleccionar imagen</label>
+              <input type="file" id="logo-file" accept="image/*" onchange="loadLogoFile(event)" />
+            </div>
+          </div>
+          <div class="form-group toggle-row">
+            <label for="show-logo">Mostrar logo</label>
+            <label class="toggle">
+              <input type="checkbox" id="show-logo" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2 class="section-title">
+            <span class="section-icon">💾</span> Exportar
+          </h2>
+          <div class="form-group">
+            <label for="export-filename">Nombre del archivo</label>
+            <input type="text" id="export-filename" value="qr-gaceta-unach" placeholder="nombre-archivo" />
+          </div>
+          <button class="btn-primary" id="btn-generate" onclick="generateQR()">
+            <span>⚡</span> Generar QR
+          </button>
+          <button class="btn-download" id="btn-download" onclick="downloadQR()" disabled>
+            <span>⬇️</span> Descargar PNG
+          </button>
+        </div>
+      </aside>
+
+      <!-- Preview Panel -->
+      <section class="preview-panel">
+        <div class="preview-card" id="preview-card">
+          <div class="preview-title">Vista previa</div>
+          <div class="qr-container" id="qr-container">
+            <div class="qr-placeholder" id="qr-placeholder">
+              <div class="placeholder-icon">📱</div>
+              <p>Ingresa un texto o URL y haz clic en <strong>Generar QR</strong></p>
+            </div>
+            <!-- QR canvas will be injected here -->
+            <canvas id="qr-final-canvas" style="display:none; border-radius: 12px;"></canvas>
+          </div>
+          <div class="preview-meta" id="preview-meta" style="display:none;">
+            <span id="meta-size"></span>
+            <span id="meta-level"></span>
+          </div>
+        </div>
+
+        <!-- Preset themes -->
+        <div class="themes-section">
+          <h3 class="themes-title">Temas rápidos</h3>
+          <div class="themes-grid">
+            <button class="theme-btn" onclick="applyTheme('institucional')" title="Institucional">
+              <div class="theme-preview" style="background: linear-gradient(135deg,#1a237e,#283593)"></div>
+              <span>Institucional</span>
+            </button>
+            <button class="theme-btn" onclick="applyTheme('dorado')" title="Dorado">
+              <div class="theme-preview" style="background: linear-gradient(135deg,#b8860b,#ffd700)"></div>
+              <span>Dorado</span>
+            </button>
+            <button class="theme-btn" onclick="applyTheme('verde')" title="Verde">
+              <div class="theme-preview" style="background: linear-gradient(135deg,#1b5e20,#388e3c)"></div>
+              <span>Verde</span>
+            </button>
+            <button class="theme-btn" onclick="applyTheme('oscuro')" title="Oscuro">
+              <div class="theme-preview" style="background: linear-gradient(135deg,#0d0d0d,#1a1a2e)"></div>
+              <span>Oscuro</span>
+            </button>
+            <button class="theme-btn" onclick="applyTheme('rojo')" title="Rojo">
+              <div class="theme-preview" style="background: linear-gradient(135deg,#b71c1c,#e53935)"></div>
+              <span>Rojo</span>
+            </button>
+            <button class="theme-btn" onclick="applyTheme('morado')" title="Morado">
+              <div class="theme-preview" style="background: linear-gradient(135deg,#4a148c,#7b1fa2)"></div>
+              <span>Morado</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>Gaceta Universitaria · Universidad Autónoma de Chiapas · <a href="https://gaceta.unach.mx"
+          target="_blank">gaceta.unach.mx</a></p>
+    </footer>
+  </div>
+
+  <!-- Hidden div for QRCode.js rendering -->
+  <div id="qr-temp" style="position:absolute;left:-9999px;top:-9999px;"></div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
