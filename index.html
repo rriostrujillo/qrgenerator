@@ -125,7 +125,7 @@
 
         <div class="panel-section">
           <h2 class="section-title">
-            <span class="section-icon">🖼️</span> Logo central
+            <span class="section-icon">🖼️</span> Logo Central
           </h2>
           <div class="form-group">
             <label for="logo-size">Tamaño del logo</label>
@@ -148,24 +148,24 @@
               <span class="range-value" id="logo-radius-val">12px</span>
             </div>
           </div>
-          <div class="logo-source-tabs">
-            <button class="tab-btn active" id="tab-url" onclick="switchLogoTab('url')">URL</button>
-            <button class="tab-btn" id="tab-file" onclick="switchLogoTab('file')">Archivo local</button>
-          </div>
-          <div id="logo-url-panel" class="logo-panel">
-            <div class="form-group">
-              <label for="logo-url">URL de la imagen</label>
-              <input type="url" id="logo-url" value="https://gaceta.unach.mx/images/headers/escudogaceta.jpg"
-                placeholder="https://..." />
-              <button class="btn-secondary" onclick="applyLogoUrl()">Aplicar URL</button>
+
+          <div class="logo-upload-container">
+            <div id="drop-zone" class="drop-zone">
+              <div class="drop-zone__prompt">
+                <span class="drop-zone__icon">📤</span>
+                <p>Arrastra tu logo aquí o <span>haz clic para buscar</span></p>
+                <small>PNG, JPG o SVG (Recomendado fondo transparente)</small>
+              </div>
+              <input type="file" name="logoFile" id="logo-file" class="drop-zone__input" accept="image/*">
+            </div>
+            <div id="logo-preview-strip" class="logo-preview-strip hidden">
+              <div class="preview-mini-wrap">
+                <img id="mini-logo-preview" src="" alt="Vista previa logo">
+                <button class="btn-remove-logo" id="btn-remove-logo" title="Eliminar logo">✕</button>
+              </div>
             </div>
           </div>
-          <div id="logo-file-panel" class="logo-panel hidden">
-            <div class="form-group">
-              <label for="logo-file">Seleccionar imagen</label>
-              <input type="file" id="logo-file" accept="image/*" onchange="loadLogoFile(event)" />
-            </div>
-          </div>
+
           <div class="form-group toggle-row">
             <label for="show-logo">Mostrar logo</label>
             <label class="toggle">

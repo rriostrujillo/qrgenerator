@@ -32,8 +32,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupRangeListeners();
   setupColorListeners();
   setupUIColorListeners();
-  await checkServerHealth();
-  loadLogoFromUrl(logoUrlEl.value);
+  setupDropZone();
+  setupRemoveLogo();
+  checkServerHealth(); // Keep it for badge status, though less critical now
 });
 
 // ─── Server Health Check ──────────────────────────────────────
@@ -143,150 +144,86 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// ─── Logo loading ─────────────────────────────────────────────
-// Strategy:
-//  1. If the image is a data: URL or same-origin → load directly.
-//  2. If the server is available → route through /proxy (bypasses CORS).
-//  3. If the server is NOT available → try loading the image directly with
-//     crossOrigin="anonymous" as a last resort (works only if the remote
-//     server sends Access-Control-Allow-Origin: *).
-//  In all failure cases, a clear, actionable error message is shown.
-async function loadLogoFromUrl(src) {
-  if (!src) return;
+// ─── Logo Handling (Drag & Drop) ─────────────────────────────
+function setupDropZone() {
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('logo-file');
 
-  // Update header preview (img tags are not subject to canvas CORS taint)
-  document.getElementById('header-logo-img').src = src;
+  dropZone.addEventListener('click', () => fileInput.click());
 
-  const isDataUrl = src.startsWith('data:');
-  const isExternal = /^https?:\/\//i.test(src) &&
-    !src.startsWith(window.location.origin) &&
-    !isDataUrl;
-
-  // ── Case 1: data: URL or same-origin ──────────────────────
-  if (!isExternal || isDataUrl) {
-    return _loadImageDirect(src);
-  }
-
-  // ── Case 2: External URL with server available (use proxy) ─
-  if (serverAvailable) {
-    const proxyUrl = `/proxy?url=${encodeURIComponent(src)}`;
-    try {
-      const response = await fetch(proxyUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-      if (blob.size === 0) throw new Error('Empty response');
-      return _loadImageFromBlob(blob);
-    } catch (err) {
-      console.warn('[logo] proxy fetch failed:', err.message);
-      showToast('⚠️ Error al cargar la imagen desde el proxy. Verifica la URL.');
-      logoImage = null;
-      return;
+  fileInput.addEventListener('change', (e) => {
+    if (fileInput.files.length) {
+      handleLogoFile(fileInput.files[0]);
     }
-  }
+  });
 
-  // ── Case 3: No server → try direct load with CORS ──────────
-  console.info('[logo] No server detected, trying direct crossOrigin load…');
-  try {
-    await _loadImageDirect(src, true /* crossOrigin */);
-    // If we reach here, the image loaded. Test that we can use it in canvas.
-    if (logoImage) {
-      const testCanvas = document.createElement('canvas');
-      testCanvas.width = testCanvas.height = 10;
-      testCanvas.getContext('2d').drawImage(logoImage, 0, 0);
-      // drawImage on a tainted canvas throws — if it doesn't, we're good.
-      showToast('✅ Logo cargado (CORS permitido por el servidor de la imagen).');
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drop-zone--over');
+  });
+
+  ['dragleave', 'dragend'].forEach(type => {
+    dropZone.addEventListener(type, () => {
+      dropZone.classList.remove('drop-zone--over');
+    });
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drop-zone--over');
+
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      handleLogoFile(e.dataTransfer.files[0]);
     }
-  } catch (err) {
-    // Canvas was tainted (CORS not allowed by remote server)
-    logoImage = null;
-    showToast(
-      '🔴 Sin servidor activo. Para usar URLs externas ejecuta: node server.js',
-      6000
-    );
-  }
-}
-
-/** Loads an image element from a src string. If crossOrigin is true, sets
- *  the crossOrigin attribute so the browser requests the image with CORS. */
-function _loadImageDirect(src, crossOrigin = false) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    if (crossOrigin) img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      logoImage = img;
-      resolve();
-    };
-    img.onerror = () => {
-      logoImage = null;
-      resolve(); // resolve (not reject) — caller decides how to handle
-    };
-    img.src = src;
   });
 }
 
-/** Creates a blob: URL from a Blob and loads it as an Image. */
-function _loadImageFromBlob(blob) {
-  return new Promise((resolve) => {
-    const objectUrl = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => {
-      logoImage = img;
-      // Keep the objectUrl alive for 60s then release it
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
-      resolve();
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      logoImage = null;
-      showToast('⚠️ No se pudo decodificar la imagen. Comprueba que sea PNG o JPG.');
-      resolve();
-    };
-    img.src = objectUrl;
-  });
-}
-
-async function applyLogoUrl() {
-  const src = logoUrlEl.value.trim();
-  if (!src) return;
-
-  // Visual feedback on the button
-  const btn = document.querySelector('#logo-url-panel .btn-secondary');
-  const original = btn ? btn.textContent : null;
-  if (btn) { btn.textContent = '⏳ Cargando…'; btn.disabled = true; }
-
-  logoImage = null;
-  await loadLogoFromUrl(src);
-
-  if (btn) { btn.textContent = original; btn.disabled = false; }
-
-  if (logoImage) {
-    showToast('✅ Logo cargado correctamente.');
+function handleLogoFile(file) {
+  if (!file.type.startsWith('image/')) {
+    showToast('⚠️ Por favor, selecciona un archivo de imagen.');
+    return;
   }
-  // Error toasts are shown inside loadLogoFromUrl
-}
 
-function loadLogoFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = new Image();
     img.onload = () => {
       logoImage = img;
-      showToast('✅ Logo cargado desde archivo local.');
+      updateLogoPreview(e.target.result);
+      showToast('✅ Logo cargado correctamente.');
     };
     img.src = e.target.result;
-    document.getElementById('header-logo-img').src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
 
-function switchLogoTab(tab) {
-  document.getElementById('logo-url-panel').classList.toggle('hidden', tab !== 'url');
-  document.getElementById('logo-file-panel').classList.toggle('hidden', tab !== 'file');
-  document.getElementById('tab-url').classList.toggle('active', tab === 'url');
-  document.getElementById('tab-file').classList.toggle('active', tab === 'file');
+function updateLogoPreview(src) {
+  const previewStrip = document.getElementById('logo-preview-strip');
+  const miniPreview = document.getElementById('mini-logo-preview');
+  const dropZone = document.getElementById('drop-zone');
+  const headerLogo = document.getElementById('header-logo-img');
+
+  miniPreview.src = src;
+  headerLogo.src = src;
+  previewStrip.classList.remove('hidden');
+  dropZone.classList.add('hidden');
 }
+
+function setupRemoveLogo() {
+  const btnRemove = document.getElementById('btn-remove-logo');
+  btnRemove.addEventListener('click', () => {
+    logoImage = null;
+    document.getElementById('logo-preview-strip').classList.add('hidden');
+    document.getElementById('drop-zone').classList.remove('hidden');
+    document.getElementById('logo-file').value = '';
+    // Optional: revert header logo to default
+    document.getElementById('header-logo-img').src = 'https://gaceta.unach.mx/images/headers/escudogaceta.jpg';
+    showToast('🗑️ Logo eliminado.');
+  });
+}
+
+// Logic for old tab switching and URL loading removed as per UX redesign
 
 // ─── QR Generation ───────────────────────────────────────────
 function generateQR() {
@@ -323,7 +260,7 @@ function _doGenerate(text) {
 
   const qrImg = new Image();
   qrImg.crossOrigin = 'anonymous'; // Important for canvas drawing
-  
+
   qrImg.onload = () => {
     onQRReady(qrImg);
   };
