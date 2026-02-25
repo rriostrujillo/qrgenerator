@@ -315,41 +315,45 @@ function generateQR() {
 function _doGenerate(text) {
   const size = parseInt(qrSizeEl.value);
   const errLevel = errorLevelEl.value;
-  const darkColor = colorDarkEl.value;
-  const lightColor = colorLightEl.value;
+  const darkColor = colorDarkEl.value.replace('#', '');
+  const lightColor = colorLightEl.value.replace('#', '');
 
-  const tempDiv = document.getElementById('qr-temp');
-  tempDiv.innerHTML = '';
+  // GoQR.me API URL
+  const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}&color=${darkColor}&bgcolor=${lightColor}&ecc=${errLevel}`;
 
-  new QRCode(tempDiv, {
-    text,
-    width: size,
-    height: size,
-    colorDark: darkColor,
-    colorLight: lightColor,
-    correctLevel: QRCode.CorrectLevel[errLevel],
-  });
+  const qrImg = new Image();
+  qrImg.crossOrigin = 'anonymous'; // Important for canvas drawing
+  
+  qrImg.onload = () => {
+    onQRReady(qrImg);
+  };
 
-  // QRCode.js renders asynchronously. We wait for the <img> that it injects
-  // to fire its "load" event instead of using a blind setTimeout.
-  function onQRReady(qrImg) {
+  qrImg.onerror = () => {
+    showToast('❌ Error al obtener el QR de la API. Revisa tu conexión.');
+    btnGenerate.innerHTML = '<span>⚡</span> Generar QR';
+    btnGenerate.disabled = false;
+  };
+
+  qrImg.src = apiUrl;
+
+  function onQRReady(img) {
     const compositeCanvas = finalCanvas;
     compositeCanvas.width = size;
     compositeCanvas.height = size;
     const ctx = compositeCanvas.getContext('2d');
 
     ctx.clearRect(0, 0, size, size);
-    ctx.drawImage(qrImg, 0, 0, size, size);
+    ctx.drawImage(img, 0, 0, size, size);
 
     if (showLogoEl.checked && logoImage) {
       try {
         drawLogoOverlay(ctx, size);
       } catch (canvasErr) {
-        // Canvas tainted by cross-origin image — generate QR without logo
         console.warn('[canvas] Tainted by cross-origin image:', canvasErr.message);
         showToast('⚠️ Logo omitido: imagen con restricciones CORS. Usa el servidor.');
+        // Redraw only the QR if logo fails due to CORS
         ctx.clearRect(0, 0, size, size);
-        ctx.drawImage(qrImg, 0, 0, size, size);
+        ctx.drawImage(img, 0, 0, size, size);
       }
     }
 
@@ -367,35 +371,6 @@ function _doGenerate(text) {
     btnGenerate.disabled = false;
 
     showToast('✅ ¡Código QR generado!');
-  }
-
-  // Wait for the QRCode.js <img> to be ready
-  const qrImg = tempDiv.querySelector('img');
-  if (qrImg) {
-    if (qrImg.complete && qrImg.naturalWidth > 0) {
-      onQRReady(qrImg);
-    } else {
-      qrImg.onload = () => onQRReady(qrImg);
-      // Fallback: if the img never fires load (old browsers), use timeout
-      setTimeout(() => {
-        if (!qrGenerated || finalCanvas.style.display === 'none') {
-          const fallbackImg = tempDiv.querySelector('img') || tempDiv.querySelector('canvas');
-          if (fallbackImg) onQRReady(fallbackImg);
-        }
-      }, 600);
-    }
-  } else {
-    // No img found yet — QRCode.js may still be building the DOM
-    setTimeout(() => {
-      const fallbackImg = tempDiv.querySelector('img') || tempDiv.querySelector('canvas');
-      if (fallbackImg) {
-        onQRReady(fallbackImg);
-      } else {
-        showToast('❌ No se pudo generar el QR.');
-        btnGenerate.innerHTML = '<span>⚡</span> Generar QR';
-        btnGenerate.disabled = false;
-      }
-    }, 500);
   }
 }
 
